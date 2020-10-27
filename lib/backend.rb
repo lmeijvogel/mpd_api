@@ -9,6 +9,29 @@ HOSTNAME = "192.168.2.3"
 # HOSTNAME = "192.168.2.4"
 PORT = 6600
 
+class Album
+  attr_reader :artist, :title
+
+  def initialize(title, artist)
+    @title = title
+    @artist = artist
+  end
+
+  def cover_filename
+    proposed_filename = "#{artist}-#{title}.jpg"
+    sanitize_filename(proposed_filename)
+  end
+
+  private
+  def sanitize_filename(input)
+    # NOTE: File.basename doesn't work right with Windows paths on Unix
+    # get only the filename, not the whole path
+    input
+      .gsub(/^.*(\\|\/)/, '')
+      .gsub(/[^0-9A-Za-z.\-]/, '_')# Strip out the non-ascii character
+  end
+end
+
 class Backend
   def playlist
     lines = query("playlistinfo")
@@ -81,7 +104,7 @@ class Backend
   end
 
   def first_song_uri(album)
-    interpolated_query = interpolate(%[find "((Album == '%s') AND (AlbumArtist == '%s'))"], album["album"], album["album_artist"])
+    interpolated_query = interpolate(%[find "((Album == '%s') AND (AlbumArtist == '%s'))"], album.title, album.artist)
 
     songs_result = query(interpolated_query)
 
@@ -97,21 +120,21 @@ class Backend
     albums_and_artists.slice_before(artist_header).each_with_object([]) do |group, result|
       artist = group[0].gsub(artist_header, "")
 
-      albums = group[1..-1].map { |album| album.gsub(album_header, "") }
+      titles = group[1..-1].map { |title| title.gsub(album_header, "") }
 
-      albums.each do |album|
-        result << {
-          album_artist: artist.force_encoding("UTF-8"),
-          album: album.force_encoding("UTF-8")
-        }
+      titles.each do |title|
+        result << Album.new(
+          title.force_encoding("UTF-8"),
+          artist.force_encoding("UTF-8")
+        )
       end
-    end.sort_by {|album| album[:album_artist].downcase }
+    end.sort_by {|album| album.artist.downcase }
   end
 
-  def clear_add(album)
+  def clear_add(title:, artist:)
     query("command_list_begin", should_read_response: false)
     query("clear", should_read_response: false)
-    query(interpolate(%[findadd "((Album == '%s') AND (AlbumArtist == '%s'))"], album["album"], album["album_artist"]))
+    query(interpolate(%[findadd "((Album == '%s') AND (AlbumArtist == '%s'))"], title, artist))
     query("play", should_read_response: false)
     query("command_list_end", should_read_response: false)
   end

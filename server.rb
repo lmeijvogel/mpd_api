@@ -18,18 +18,17 @@ require "sinatra/reloader" if development?
 
 also_reload './backend.rb'
 
-COVERS_PATH = "public/covers"
+COVERS_PATH = "covers"
 
 FileUtils.mkdir_p(COVERS_PATH)
 
 get '/api/albums' do
   Backend.new.albums.map do |album|
-    proposed_filename = "#{album[:album_artist]}-#{album[:album]}.jpg"
-    cover_path = File.join("/covers", sanitize_filename(proposed_filename))
-
-    album.merge({
-      cover_path: cover_path
-    })
+    {
+      album: album.title,
+      album_artist: album.artist,
+      cover_path: File.join(COVERS_PATH, album.cover_filename)
+    }
   end.to_json
 end
 
@@ -58,7 +57,7 @@ end
 
 post '/api/clear_and_play' do
   payload = JSON.parse(request.body.read)
-  Backend.new.clear_add(payload)
+  Backend.new.clear_add(title: payload.fetch("album"), artist: payload.fetch("album_artist"))
 end
 
 post '/api/play_id' do
@@ -69,12 +68,4 @@ end
 post '/api/volume' do
   volume = Integer(JSON.parse(request.body.read).fetch("volume"))
   Backend.new.set_volume(volume)
-end
-
-def sanitize_filename(input)
-   # NOTE: File.basename doesn't work right with Windows paths on Unix
-   # get only the filename, not the whole path
-  input
-    .gsub(/^.*(\\|\/)/, '')
-    .gsub(/[^0-9A-Za-z.\-]/, '_')# Strip out the non-ascii character
 end
