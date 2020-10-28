@@ -47,6 +47,22 @@ post '/api/command' do
   Backend.new.command(command)
 end
 
+post '/api/update_playback_setting' do
+  input = JSON.parse(request.body.read)
+
+  key, value = input.values_at("key", "value")
+
+  is_request_correct = %w[repeat random single consume].include?(key) && %w[0 1].include?(value)
+
+  if !is_request_correct
+    status 400
+
+    return
+  end
+
+  Backend.new.command("#{key} #{value}")
+end
+
 post '/api/retrieve_album_covers' do
   CoverLoader.perform_async
 end
