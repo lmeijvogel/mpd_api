@@ -171,9 +171,7 @@ class Backend
 
       size_line = socket.gets
 
-      if size_line =~ /^ACK.*No file exists/
-        raise MpdNoAlbumArt
-      end
+      raise MpdNoAlbumArt if size_line =~ /^ACK.*No file exists/
 
       binary_line = socket.gets
 
