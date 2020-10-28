@@ -16,7 +16,7 @@ require "cover_loader"
 
 require "sinatra/reloader" if development?
 
-also_reload './backend.rb'
+also_reload("**/*.rb")
 
 COVERS_PATH = "covers"
 
