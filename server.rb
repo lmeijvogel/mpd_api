@@ -85,3 +85,9 @@ post '/api/volume' do
   volume = Integer(JSON.parse(request.body.read).fetch("volume"))
   Backend.new.set_volume(volume)
 end
+
+post '/api/enable_output' do
+  id = JSON.parse(request.body.read).fetch("id")
+
+  Backend.new.enable_output(id)
+end

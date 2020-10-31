@@ -9,6 +9,20 @@ HOSTNAME = "192.168.2.3"
 # HOSTNAME = "192.168.2.4"
 PORT = 6600
 
+class Output
+  attr_reader :id, :name
+
+  def initialize(id, name, enabled)
+    @id = id
+    @name = name
+    @enabled = enabled
+  end
+
+  def enabled?
+    @enabled
+  end
+end
+
 class Album
   attr_reader :artist, :title
 
@@ -58,7 +72,8 @@ class Backend
       single: read_value("single", lines),
       consume: read_value("consume", lines),
       state: read_value("state", lines),
-      volume: read_value("volume", lines, default: '-')
+      volume: read_value("volume", lines, default: '-'),
+      outputs: self.outputs
     }
 
     if result[:state] == "stop"
@@ -136,6 +151,19 @@ class Backend
     query("clear", should_read_response: false)
     query(interpolate(%[findadd "((Album == '%s') AND (AlbumArtist == '%s'))"], title, artist))
     query("play", should_read_response: false)
+  ensure
+    query("command_list_end", should_read_response: false)
+  end
+
+  def enable_output(id)
+    query("command_list_begin", should_read_response: false)
+
+    outputs.reject {|output| output[:id] == id }.each do |output|
+      command("disableoutput #{Integer(output[:id])}")
+    end
+
+    command("enableoutput #{Integer(id)}")
+  ensure
     query("command_list_end", should_read_response: false)
   end
 
@@ -149,6 +177,16 @@ class Backend
       position: read_value("Pos", entry_lines),
       time: read_value("Time", entry_lines)
     }
+  end
+
+  def outputs
+    query("outputs")[1..-1].slice_before(/^outputid:/).map do |output_lines|
+      {
+        id: read_value("outputid", output_lines),
+        name: read_value("outputname", output_lines),
+        is_enabled: read_value("outputenabled", output_lines) == "1"
+      }
+    end
   end
 
   def interpolate(query, *args)
@@ -201,7 +239,11 @@ class Backend
       socket.write "\n" unless command.end_with?("\n")
       socket.flush
 
-      read_response(socket) if should_read_response
+      begin
+        read_response(socket) if should_read_response
+      rescue MpdCommandError => e
+        raise MpdCommandError, "#{e.message}. Command: [[#{command}]]"
+      end
     end
   end
 
