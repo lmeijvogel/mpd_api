@@ -59,8 +59,8 @@ class Backend
     end
   end
 
-  def command(command)
-    query(command)
+  def command(command, *args)
+    query(command, *args)
   end
 
   def status
@@ -88,11 +88,11 @@ class Backend
   end
 
   def set_volume(volume)
-    query("setvol #{volume}")
+    query("setvol %d", [Integer(volume)])
   end
 
   def play_id(id)
-    query("playid #{id}")
+    query("playid %d", [Integer(id)])
   end
 
   def get_albumart(album, output_file)
@@ -119,9 +119,7 @@ class Backend
   end
 
   def first_song_uri(album)
-    interpolated_query = interpolate(%[find "((Album == '%s') AND (AlbumArtist == '%s'))"], album.title, album.artist)
-
-    songs_result = query(interpolated_query)
+    songs_result = query(%[find "((Album == '%s') AND (AlbumArtist == '%s'))"], [album.title, album.artist])
 
     read_value("file", songs_result)
   end
@@ -147,24 +145,24 @@ class Backend
   end
 
   def clear_add(title:, artist:)
-    query("command_list_begin", should_read_response: false)
-    query("clear", should_read_response: false)
-    query(interpolate(%[findadd "((Album == '%s') AND (AlbumArtist == '%s'))"], title, artist))
-    query("play", should_read_response: false)
+    query("command_list_begin", [], should_read_response: false)
+    query("clear", [], should_read_response: false)
+    query(%[findadd "((Album == %s) AND (AlbumArtist == %s))"], [title, artist])
+    query("play", [], should_read_response: false)
   ensure
-    query("command_list_end", should_read_response: false)
+    query("command_list_end", [], should_read_response: false)
   end
 
   def enable_output(id)
-    query("command_list_begin", should_read_response: false)
+    query("command_list_begin", [], should_read_response: false)
 
     outputs.reject {|output| output[:id] == id }.each do |output|
-      command("disableoutput #{Integer(output[:id])}")
+      command("disableoutput %d", [Integer(output[:id])])
     end
 
-    command("enableoutput #{Integer(id)}")
+    command("enableoutput %d", [Integer(id)])
   ensure
-    query("command_list_end", should_read_response: false)
+    query("command_list_end", [], should_read_response: false)
   end
 
   private
@@ -189,16 +187,22 @@ class Backend
     end
   end
 
-  def interpolate(query, *args)
-    escaped_args = args.map {|arg| arg.gsub(/'/, "\\\\\\\\'").gsub(/"/, '\\"') }
+  def interpolate(query, args)
+    escaped_args = args.map do |arg|
+      case arg
+      when Integer, Numeric
+        arg
+      else
+        escaped = arg.to_s.gsub(/'/, "\\\\\\\\'").gsub(/"/, '\\"')
+        %['#{escaped}']
+      end
+    end
 
     format(query, *escaped_args)
   end
 
   def read_albumart(album, song_uri, offset = 0)
-    command = %Q[albumart "#{song_uri}" #{offset}]
-
-    MpdLogger.debug("Retrieving albumart [[#{command}]])")
+    command = interpolate(%Q[albumart %s %d], [song_uri, offset])
 
     TCPSocket.open(HOSTNAME, PORT) do |socket|
       socket.write command
@@ -231,11 +235,13 @@ class Backend
     end
   end
 
-  def query(command, should_read_response: true)
-    MpdLogger.debug("Sending command [[#{command}]])")
+  def query(command, parameters = [], should_read_response: true)
+    interpolated_query = interpolate(command, parameters)
+
+    MpdLogger.debug("Sending command [[#{interpolated_query}]])")
 
     TCPSocket.open(HOSTNAME, PORT) do |socket|
-      socket.write command
+      socket.write interpolated_query
       socket.write "\n" unless command.end_with?("\n")
       socket.flush
 
