@@ -1,6 +1,7 @@
 require 'socket'
 
 require 'mpd_logger'
+require 'mpd_backend'
 
 class MpdCommandError < StandardError; end
 class MpdNoAlbumArt < StandardError; end
@@ -48,7 +49,7 @@ end
 
 class Backend
   def playlist
-    lines = query("playlistinfo")
+    lines = MpdBackend.query("playlistinfo")
 
     return [] if lines.count <= 1
 
@@ -59,12 +60,8 @@ class Backend
     end
   end
 
-  def command(command, *args)
-    query(command, *args)
-  end
-
   def status
-    lines = query("status")
+    lines = MpdBackend.query("status")
 
     result = {
       repeat: read_value("repeat", lines),
@@ -88,11 +85,11 @@ class Backend
   end
 
   def set_volume(volume)
-    query("setvol %d", [Integer(volume)])
+    MpdBackend.command("setvol %d", [Integer(volume)])
   end
 
   def play_id(id)
-    query("playid %d", [Integer(id)])
+    MpdBackend.command("playid %d", [Integer(id)])
   end
 
   def get_albumart(album, output_file)
@@ -103,7 +100,7 @@ class Backend
     begin
       File.open(output_file, "wb") do |file|
         loop do
-          response = read_albumart(album, song_uri, offset)
+          response = MpdBackend.fetch_albumart(album, song_uri, offset)
 
           break if response[:byte_count] == 0
 
@@ -119,13 +116,13 @@ class Backend
   end
 
   def first_song_uri(album)
-    songs_result = query(%[find "((Album == '%s') AND (AlbumArtist == '%s'))"], [album.title, album.artist])
+    songs_result = MpdBackend.query(%[find "((Album == '%s') AND (AlbumArtist == '%s'))"], [album.title, album.artist])
 
     read_value("file", songs_result)
   end
 
   def albums
-    albums_and_artists = query("list album group albumartistsort")
+    albums_and_artists = MpdBackend.query("list album group albumartistsort")
 
     artist_header = %r[\AAlbumArtistSort: ]
     album_header = %r[\AAlbum: ]
@@ -146,35 +143,23 @@ class Backend
 
   def clear_add(title:, artist:)
     command_list do |socket|
-      query("clear", [], socket: socket, should_read_response: false)
-      query(%[findadd "((Album == %s) AND (AlbumArtist == %s))"], [title, artist], socket: socket, should_read_response: false)
-      query("play", [], socket: socket, should_read_response: false)
+      MpdBackend.command("clear", [], socket: socket)
+      MpdBackend.command(%[findadd "((Album == %s) AND (AlbumArtist == %s))"], [title, artist], socket: socket)
+      MpdBackend.command("play", [], socket: socket)
     end
   end
 
   def enable_output(id)
     command_list do |socket|
       outputs.reject {|output| output[:id] == id }.each do |output|
-        command("disableoutput %d", [Integer(output[:id])], socket: socket)
+        MpdBackend.command("disableoutput %d", [Integer(output[:id])], socket: socket)
       end
 
-      command("enableoutput %d", [Integer(id)], socket: socket)
+      MpdBackend.command("enableoutput %d", [Integer(id)], socket: socket)
     end
   end
 
   private
-
-  def command_list(&block)
-    TCPSocket.open(HOSTNAME, PORT) do |socket|
-      begin
-        query("command_list_begin", [], socket: socket, should_read_response: false)
-
-        block.yield socket
-      ensure
-        query("command_list_end", [], socket: socket, should_read_response: false)
-      end
-    end
-  end
 
   def to_song(entry_lines)
     {
@@ -187,105 +172,13 @@ class Backend
   end
 
   def outputs
-    query("outputs")[1..-1].slice_before(/^outputid:/).map do |output_lines|
+    MpdBackend.query("outputs")[1..-1].slice_before(/^outputid:/).map do |output_lines|
       {
         id: read_value("outputid", output_lines),
         name: read_value("outputname", output_lines),
         is_enabled: read_value("outputenabled", output_lines) == "1"
       }
     end
-  end
-
-  def interpolate(query, args)
-    escaped_args = args.map do |arg|
-      case arg
-      when Integer, Numeric
-        arg
-      else
-        escaped = arg.to_s.gsub(/'/, "\\\\\\\\'").gsub(/"/, '\\"')
-        %['#{escaped}']
-      end
-    end
-
-    format(query, *escaped_args)
-  end
-
-  def read_albumart(album, song_uri, offset = 0)
-    command = interpolate(%Q[albumart %s %d], [song_uri, offset])
-
-    TCPSocket.open(HOSTNAME, PORT) do |socket|
-      socket.write command
-      socket.write "\n" unless command.end_with?("\n")
-      socket.flush
-
-      welcome_line = socket.gets
-
-      size_line = socket.gets
-
-      raise MpdNoAlbumArt if size_line =~ /^ACK.*No file exists/
-
-      binary_line = socket.gets
-
-      size_line =~ /size: (\d+)/
-      total_size_in_bytes = $1
-
-      binary_line =~ /binary: (\d+)/
-      current_bytes = Integer($1)
-
-      bytes = socket.read(current_bytes)
-
-      ok_line = socket.gets
-
-      {
-        total_byte_count: Integer(total_size_in_bytes),
-        byte_count: Integer(current_bytes),
-        bytes: bytes
-      }
-    end
-  end
-
-  def query(command, parameters = [], socket: nil, should_read_response: true)
-    interpolated_query = interpolate(command, parameters)
-
-    MpdLogger.debug("Sending command [[#{interpolated_query}]])")
-
-    if socket
-      __send_query(interpolated_query, socket, should_read_response)
-    else
-      TCPSocket.open(HOSTNAME, PORT) do |socket|
-        __send_query(interpolated_query, socket, should_read_response)
-      end
-    end
-  end
-
-  def __send_query(query, socket, should_read_response)
-    socket.write query
-    socket.write "\n" unless query.end_with?("\n")
-    socket.flush
-
-    begin
-      read_response(socket) if should_read_response
-    rescue MpdCommandError => e
-      raise MpdCommandError, "#{e.message}. Command: [[#{query}]]"
-    end
-  end
-
-  def read_response(socket)
-    result = []
-
-    loop do
-      line = socket.gets
-
-      break if line.strip == "OK"
-
-      if line.start_with?("ACK")
-        raise MpdCommandError, line
-      end
-
-      result << line.strip.force_encoding("UTF-8")
-    end
-
-    result
   end
 
   def read_value(field_name, input, default: nil)
