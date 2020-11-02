@@ -145,27 +145,36 @@ class Backend
   end
 
   def clear_add(title:, artist:)
-    query("command_list_begin", [], should_read_response: false)
-    query("clear", [], should_read_response: false)
-    query(%[findadd "((Album == %s) AND (AlbumArtist == %s))"], [title, artist])
-    query("play", [], should_read_response: false)
-  ensure
-    query("command_list_end", [], should_read_response: false)
+    command_list do |socket|
+      query("clear", [], socket: socket, should_read_response: false)
+      query(%[findadd "((Album == %s) AND (AlbumArtist == %s))"], [title, artist], socket: socket, should_read_response: false)
+      query("play", [], socket: socket, should_read_response: false)
+    end
   end
 
   def enable_output(id)
-    query("command_list_begin", [], should_read_response: false)
+    command_list do |socket|
+      outputs.reject {|output| output[:id] == id }.each do |output|
+        command("disableoutput %d", [Integer(output[:id])], socket: socket)
+      end
 
-    outputs.reject {|output| output[:id] == id }.each do |output|
-      command("disableoutput %d", [Integer(output[:id])])
+      command("enableoutput %d", [Integer(id)], socket: socket)
     end
-
-    command("enableoutput %d", [Integer(id)])
-  ensure
-    query("command_list_end", [], should_read_response: false)
   end
 
   private
+
+  def command_list(&block)
+    TCPSocket.open(HOSTNAME, PORT) do |socket|
+      begin
+        query("command_list_begin", [], socket: socket, should_read_response: false)
+
+        block.yield socket
+      ensure
+        query("command_list_end", [], socket: socket, should_read_response: false)
+      end
+    end
+  end
 
   def to_song(entry_lines)
     {
@@ -235,21 +244,29 @@ class Backend
     end
   end
 
-  def query(command, parameters = [], should_read_response: true)
+  def query(command, parameters = [], socket: nil, should_read_response: true)
     interpolated_query = interpolate(command, parameters)
 
     MpdLogger.debug("Sending command [[#{interpolated_query}]])")
 
-    TCPSocket.open(HOSTNAME, PORT) do |socket|
-      socket.write interpolated_query
-      socket.write "\n" unless command.end_with?("\n")
-      socket.flush
-
-      begin
-        read_response(socket) if should_read_response
-      rescue MpdCommandError => e
-        raise MpdCommandError, "#{e.message}. Command: [[#{command}]]"
+    if socket
+      __send_query(interpolated_query, socket, should_read_response)
+    else
+      TCPSocket.open(HOSTNAME, PORT) do |socket|
+        __send_query(interpolated_query, socket, should_read_response)
       end
+    end
+  end
+
+  def __send_query(query, socket, should_read_response)
+    socket.write query
+    socket.write "\n" unless query.end_with?("\n")
+    socket.flush
+
+    begin
+      read_response(socket) if should_read_response
+    rescue MpdCommandError => e
+      raise MpdCommandError, "#{e.message}. Command: [[#{query}]]"
     end
   end
 
