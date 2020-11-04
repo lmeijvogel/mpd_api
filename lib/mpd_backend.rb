@@ -11,16 +11,17 @@ class MpdBackend
 
   def self.command_list(&block)
     TCPSocket.open(HOSTNAME, PORT) do |socket|
-
       backend = MpdBackend.new(socket: socket)
 
       begin
-
         backend.command("command_list_begin", [])
 
         block.yield backend
       ensure
-        backend.command("command_list_end", [])
+        # Receive the response from mpd so it can close its end of the connection.
+        # Otherwise, later commands will wait and timeout because mpd didn't finish its
+        # last request yet.
+        backend.query("command_list_end", [])
       end
     end
   end
@@ -66,7 +67,9 @@ class MpdBackend
   def command(query, parameters)
     interpolated_query = Interpolator.interpolate(query, parameters)
 
-    send(interpolated_query, should_read_response: false)
+    send(interpolated_query, should_read_response: @socket.nil?) # Only read response if no socket was given: That means that this request is not in a command list
+
+    nil
   end
 
   def query(query, parameters)
