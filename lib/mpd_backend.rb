@@ -2,21 +2,25 @@ require 'mpd_logger'
 
 class MpdBackend
   def self.command(command, parameters = [], socket: nil)
-    new(command, parameters, socket: socket, should_read_response: false).send
+    new(socket: socket).command(command, parameters)
   end
 
   def self.query(command, parameters = [], socket: nil)
-    new(command, parameters, socket: socket, should_read_response: true).send
+    new(socket: socket).query(command, parameters)
   end
 
   def self.command_list(&block)
     TCPSocket.open(HOSTNAME, PORT) do |socket|
-      begin
-        Query.send("command_list_begin", [], socket: socket)
 
-        block.yield socket
+      backend = MpdBackend.new(socket: socket)
+
+      begin
+
+        backend.command("command_list_begin", [])
+
+        block.yield backend
       ensure
-        Query.send("command_list_end", [], socket: socket)
+        backend.command("command_list_end", [])
       end
     end
   end
@@ -55,38 +59,46 @@ class MpdBackend
     end
   end
 
-  def initialize(command, parameters = [], socket: nil, should_read_response: true)
-    @query = Interpolator.interpolate(command, parameters)
-
+  def initialize(socket: nil)
     @socket = socket
-
-    @should_read_response = !socket && should_read_response
   end
 
-  def send
+  def command(query, parameters)
+    interpolated_query = Interpolator.interpolate(query, parameters)
+
+    send(interpolated_query, should_read_response: false)
+  end
+
+  def query(query, parameters)
+    interpolated_query = Interpolator.interpolate(query, parameters)
+
+    send(interpolated_query, should_read_response: true)
+  end
+
+  def send(query, should_read_response:)
     MpdLogger.debug("Sending command [[#{@query}]])")
 
     if @socket
       # Never read response for an existing socket: That is likely a
       # command list, so we don't receive responses for each query.
-      send_query(socket: @socket)
+      send_query(query, socket: @socket, should_read_response: should_read_response)
     else
       TCPSocket.open(HOSTNAME, PORT) do |socket|
-        send_query(socket: socket)
+        send_query(query, socket: socket, should_read_response: should_read_response)
       end
     end
   end
 
   private
-  def send_query(socket:)
-    socket.write @query
-    socket.write "\n" unless @query.end_with?("\n")
+  def send_query(query, socket:, should_read_response:)
+    socket.write query
+    socket.write "\n" unless query.end_with?("\n")
     socket.flush
 
     begin
-      read_response(socket) if @should_read_response
+      read_response(socket) if should_read_response
     rescue MpdCommandError => e
-      raise MpdCommandError, "#{e.message}. Command: [[#{@query}]]"
+      raise MpdCommandError, "#{e.message}. Command: [[#{query}]]"
     end
   end
 

@@ -1,5 +1,3 @@
-require 'socket'
-
 require 'mpd_logger'
 require 'mpd_backend'
 
@@ -142,20 +140,24 @@ class Backend
   end
 
   def clear_add(title:, artist:)
-    command_list do |socket|
-      MpdBackend.command("clear", [], socket: socket)
-      MpdBackend.command(%[findadd "((Album == %s) AND (AlbumArtist == %s))"], [title, artist], socket: socket)
-      MpdBackend.command("play", [], socket: socket)
+    MpdBackend.command_list do |backend|
+      backend.command("clear", [])
+      backend.command(%[findadd "((Album == %s) AND (AlbumArtist == %s))"], [title, artist])
+      backend.command("play", [])
     end
   end
 
   def enable_output(id)
-    command_list do |socket|
-      outputs.reject {|output| output[:id] == id }.each do |output|
-        MpdBackend.command("disableoutput %d", [Integer(output[:id])], socket: socket)
-      end
+    current_outputs = outputs # Do this outside of the command list
 
-      MpdBackend.command("enableoutput %d", [Integer(id)], socket: socket)
+    MpdBackend.command_list do |backend|
+      to_enable, to_disable = current_outputs.partition {|output| output[:id] == id }
+
+      [to_enable, to_disable].zip(["enableoutput", "disableoutput"]).each do |outputs, command|
+        outputs.each do |output|
+          backend.command("#{command} %d", [output[:id]])
+        end
+      end
     end
   end
 
@@ -174,7 +176,7 @@ class Backend
   def outputs
     MpdBackend.query("outputs")[1..-1].slice_before(/^outputid:/).map do |output_lines|
       {
-        id: read_value("outputid", output_lines),
+        id: Integer(read_value("outputid", output_lines)),
         name: read_value("outputname", output_lines),
         is_enabled: read_value("outputenabled", output_lines) == "1"
       }

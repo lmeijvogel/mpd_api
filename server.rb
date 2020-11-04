@@ -87,7 +87,9 @@ post '/api/volume' do
 end
 
 post '/api/enable_output' do
-  id = JSON.parse(request.body.read).fetch("id")
+  id = Integer(JSON.parse(request.body.read).fetch("id"))
 
   Backend.new.enable_output(id)
+
+  status 204
 end
