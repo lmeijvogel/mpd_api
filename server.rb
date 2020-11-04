@@ -1,7 +1,4 @@
-require 'bundler'
-
-Bundler.load
-
+$stdout.sync = true
 require 'fileutils'
 require 'json'
 
