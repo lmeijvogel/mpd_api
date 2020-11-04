@@ -29,7 +29,7 @@ class MpdBackend
   end
 
   def self.read_albumart(album, song_uri, offset = 0)
-    MpdBackend.command = Interpolator.interpolate(%Q[albumart %s %d], [song_uri, offset])
+    command = Interpolator.interpolate(%Q[albumart %s %d], [song_uri, offset])
 
     TCPSocket.open(HOSTNAME, PORT) do |socket|
       socket.write command
