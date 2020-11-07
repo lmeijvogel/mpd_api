@@ -1,4 +1,5 @@
 require 'mpd_logger'
+require 'mpd_response'
 
 class MpdBackend
   def self.command(command, parameters = [])
@@ -28,8 +29,30 @@ class MpdBackend
     end
   end
 
-  def self.read_albumart(album, song_uri, offset = 0)
-    command = Interpolator.interpolate(%Q[albumart %s %d], [song_uri, offset])
+  def self.fetch_and_save_albumart(album, output_file)
+    offset = 0
+
+    song_uri = first_song_uri(album).gsub(/"/, "\\\"")
+
+    loop do
+      response = fetch_albumart_part(album, song_uri, offset)
+
+      break if response[:byte_count] == 0
+
+      output_file.write response[:bytes]
+
+      offset += response[:byte_count]
+    end
+  end
+
+  def self.first_song_uri(album)
+    songs_result = MpdBackend.query(%[find "((Album == %s) AND (AlbumArtist == %s))"], [album.title, album.artist])
+
+    songs_result.read_value("file")
+  end
+
+  def self.fetch_albumart_part(album, song_uri, offset = 0)
+    command = Interpolator.interpolate(%Q[albumart %s %d], [song_uri, offset], quote_char: '"')
 
     TCPSocket.open(HOSTNAME, PORT) do |socket|
       socket.write command
@@ -41,6 +64,7 @@ class MpdBackend
       size_line = socket.gets
 
       raise MpdNoAlbumArt if size_line =~ /^ACK.*No file exists/
+      raise MpdCommandError, "Error occurred! '#{size_line.strip}'" if size_line =~ /^ACK/
 
       binary_line = socket.gets
 
@@ -79,7 +103,9 @@ class MpdBackend
 
     interpolated_query = Interpolator.interpolate(query, parameters)
 
-    send(interpolated_query, should_read_response: true)
+    response_text = send(interpolated_query, should_read_response: true)
+
+    MpdResponse.new(response_text)
   end
 
   def send(query, should_read_response:)
@@ -128,14 +154,19 @@ class MpdBackend
   end
 
   module Interpolator
-    def self.interpolate(string, args)
+    def self.interpolate(string, args, quote_char: "'")
       escaped_args = args.map do |arg|
         case arg
         when Integer, Numeric
           arg
         else
-          escaped = arg.to_s.gsub(/'/, "\\\\\\\\'").gsub(/"/, '\\"')
-          %['#{escaped}']
+          if quote_char == "'"
+            escaped = arg.to_s.gsub(/'/, "\\\\\\\\'").gsub(/"/, '\\"')
+            %['#{escaped}']
+          else
+            escaped = arg.to_s.gsub(/"/, '\\\\\\\\"').gsub(/'/, "\\'")
+            %["#{escaped}"]
+          end
         end
       end
 

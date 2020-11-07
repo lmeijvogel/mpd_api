@@ -23,7 +23,7 @@ class CoverLoader
       artist = album.artist
       title = album.title
 
-      if File.exist?(cover_path)
+      if File.exist?(cover_path) && File.size(cover_path) > 0
         MpdLogger.info("Skipping #{artist} - #{title}")
         next
       end
@@ -31,7 +31,7 @@ class CoverLoader
       MpdLogger.info("Retrieving for #{artist} - #{title}")
 
       begin
-        Backend.new.get_albumart(album, cover_path)
+        Backend.new.retrieve_albumart(album, cover_path)
       rescue MpdNoAlbumArt => e
         MpdLogger.info("No album art exists for #{artist} - #{title}")
       end

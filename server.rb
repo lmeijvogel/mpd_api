@@ -60,8 +60,12 @@ post '/api/update_playback_setting' do
   Backend.new.command("#{key} #{value}")
 end
 
-post '/api/retrieve_album_covers' do
+post '/api/update_album_covers' do
   CoverLoader.perform_async
+end
+
+post '/api/update_albums' do
+  Backend.new.update_albums
 end
 
 get '/api/playlist' do

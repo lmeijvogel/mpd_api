@@ -47,27 +47,27 @@ end
 
 class Backend
   def playlist
-    lines = MpdBackend.query("playlistinfo")
+    response = MpdBackend.query("playlistinfo")
 
-    return [] if lines.count <= 1
+    return [] if response.lines.count <= 1
 
-    entries = lines[1..-1].slice_before(/^file: /)
+    entries = response.slice_before(/^file: /)
 
-    entries.map do |entry_lines|
-      to_song(entry_lines)
+    entries.map do |entry|
+      to_song(entry)
     end
   end
 
   def status
-    lines = MpdBackend.query("status")
+    response = MpdBackend.query("status")
 
     result = {
-      repeat: read_value("repeat", lines),
-      random: read_value("random", lines),
-      single: read_value("single", lines),
-      consume: read_value("consume", lines),
-      state: read_value("state", lines),
-      volume: read_value("volume", lines, default: '-'),
+      repeat: response.read_value("repeat"),
+      random: response.read_value("random"),
+      single: response.read_value("single"),
+      consume: response.read_value("consume"),
+      state: response.read_value("state"),
+      volume: response.read_value("volume", default: '-'),
       outputs: self.outputs
     }
 
@@ -75,11 +75,15 @@ class Backend
       result
     else
       result.merge({
-        songid: read_value("songid", lines),
-        elapsed: read_value("elapsed", lines),
-        duration: read_value("duration", lines)
+        songid: response.read_value("songid"),
+        elapsed: response.read_value("elapsed"),
+        duration: response.read_value("duration")
       })
     end
+  end
+
+  def command(command)
+    MpdBackend.command(command)
   end
 
   def set_volume(volume)
@@ -90,33 +94,15 @@ class Backend
     MpdBackend.command("playid %d", [Integer(id)])
   end
 
-  def get_albumart(album, output_file)
-    offset = 0
-
-    song_uri = first_song_uri(album).gsub(/"/, "\\\"")
-
+  def retrieve_albumart(album, output_file)
     begin
       File.open(output_file, "wb") do |file|
-        loop do
-          response = MpdBackend.fetch_albumart(album, song_uri, offset)
-
-          break if response[:byte_count] == 0
-
-          file.write response[:bytes]
-
-          offset += response[:byte_count]
-        end
+        MpdBackend.fetch_and_save_albumart(album, file)
       end
     rescue MpdNoAlbumArt
       FileUtils.rm_f output_file
       raise
     end
-  end
-
-  def first_song_uri(album)
-    songs_result = MpdBackend.query(%[find "((Album == '%s') AND (AlbumArtist == '%s'))"], [album.title, album.artist])
-
-    read_value("file", songs_result)
   end
 
   def albums
@@ -126,9 +112,9 @@ class Backend
     album_header = %r[\AAlbum: ]
 
     albums_and_artists.slice_before(artist_header).each_with_object([]) do |group, result|
-      artist = group[0].gsub(artist_header, "")
+      artist = group.lines[0].gsub(artist_header, "")
 
-      titles = group[1..-1].map { |title| title.gsub(album_header, "") }
+      titles = group.lines[1..-1].map { |title| title.gsub(album_header, "") }
 
       titles.each do |title|
         result << Album.new(
@@ -137,6 +123,10 @@ class Backend
         )
       end
     end.sort_by {|album| album.artist.downcase }
+  end
+
+  def update_albums
+    MpdBackend.command("update")
   end
 
   def clear_add(title:, artist:)
@@ -163,37 +153,23 @@ class Backend
 
   private
 
-  def to_song(entry_lines)
+  def to_song(mpd_response)
     {
-      id: read_value("Id", entry_lines),
-      artist: read_value("Artist", entry_lines),
-      title: read_value("Title", entry_lines),
-      position: read_value("Pos", entry_lines),
-      time: read_value("Time", entry_lines)
+      id: mpd_response.read_value("Id"),
+      artist: mpd_response.read_value("Artist"),
+      title: mpd_response.read_value("Title"),
+      position: mpd_response.read_value("Pos"),
+      time: mpd_response.read_value("Time")
     }
   end
 
   def outputs
-    MpdBackend.query("outputs")[1..-1].slice_before(/^outputid:/).map do |output_lines|
+    MpdBackend.query("outputs").slice_before(/^outputid:/).map do |mpd_response_part|
       {
-        id: Integer(read_value("outputid", output_lines)),
-        name: read_value("outputname", output_lines),
-        is_enabled: read_value("outputenabled", output_lines) == "1"
+        id: Integer(mpd_response_part.read_value("outputid")),
+        name: mpd_response_part.read_value("outputname"),
+        is_enabled: mpd_response_part.read_value("outputenabled") == "1"
       }
     end
-  end
-
-  def read_value(field_name, input, default: nil)
-    regex = %r[^#{field_name}: (.*)]
-
-    matching_lines = input.grep(regex)
-
-    if matching_lines.none? && default
-      return default
-    end
-
-    matches = matching_lines[0].match(regex)
-
-    matches[1]
   end
 end
