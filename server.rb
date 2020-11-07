@@ -35,7 +35,7 @@ end
 
 post '/api/command' do
   command = JSON.parse(request.body.read).fetch("command")
-  puts command.inspect
+
   unless %w[previous play pause next stop].include?(command)
     status 400
     return
