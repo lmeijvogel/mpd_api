@@ -1,6 +1,10 @@
 require 'mpd_logger'
 require 'mpd_response'
 
+class MpdConnectionError < StandardError; end
+class MpdCommandError < StandardError; end
+class MpdNoAlbumArt < StandardError; end
+
 class MpdBackend
   def self.command(command, parameters = [])
     new.command(command, parameters)
@@ -11,10 +15,11 @@ class MpdBackend
   end
 
   def self.command_list(&block)
-    TCPSocket.open(HOSTNAME, PORT) do |socket|
+    open_socket do |socket|
       backend = MpdBackend.new(socket: socket)
 
       backend.prevent_reading_response = true
+
       begin
         backend.command("command_list_begin", [])
 
@@ -54,12 +59,12 @@ class MpdBackend
   def self.fetch_albumart_part(album, song_uri, offset = 0)
     command = Interpolator.interpolate(%Q[albumart %s %d], [song_uri, offset], quote_char: '"')
 
-    TCPSocket.open(HOSTNAME, PORT) do |socket|
+    open_socket do |socket|
+      banner_line = socket.gets
+
       socket.write command
       socket.write "\n" unless command.end_with?("\n")
       socket.flush
-
-      welcome_line = socket.gets
 
       size_line = socket.gets
 
@@ -114,7 +119,7 @@ class MpdBackend
     if @socket
       send_query(query, socket: @socket, should_read_response: should_read_response)
     else
-      TCPSocket.open(HOSTNAME, PORT) do |socket|
+      open_socket do |socket|
         send_query(query, socket: socket, should_read_response: should_read_response)
       end
     end
@@ -123,6 +128,17 @@ class MpdBackend
   attr_accessor :prevent_reading_response
 
   private
+
+  def open_socket(&block)
+    TCPSocket.open(HOSTNAME, PORT) do |socket|
+      banner_line = socket.gets
+
+      raise MpdConnectionError, "Error connecting: '#{banner_line.strip}'" if banner_line !~ /\AOK MPD/
+
+      block.yield socket
+    end
+  end
+
   def send_query(query, socket:, should_read_response:)
     socket.write query
     socket.write "\n" unless query.end_with?("\n")
@@ -174,4 +190,3 @@ class MpdBackend
     end
   end
 end
-

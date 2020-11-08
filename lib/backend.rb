@@ -1,9 +1,6 @@
 require 'mpd_logger'
 require 'mpd_backend'
 
-class MpdCommandError < StandardError; end
-class MpdNoAlbumArt < StandardError; end
-
 HOSTNAME = "192.168.2.3"
 # HOSTNAME = "192.168.2.4"
 PORT = 6600
