@@ -1,5 +1,6 @@
 require 'mpd_logger'
 require 'mpd_backend'
+require 'snapcast_backend'
 
 class Output
   attr_reader :id, :name
@@ -103,6 +104,15 @@ class Backend
         duration: response.read_value("duration")
       })
     end
+  end
+
+  def takeover_status
+    snapcast = SnapcastBackend.build(@ip)
+
+    {
+      snapcast_playing: snapcast.client_playing?(@ip),
+      debug: snapcast.status
+    }
   end
 
   def command(command)
