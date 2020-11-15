@@ -5,18 +5,20 @@ class MpdConnectionError < StandardError; end
 class MpdCommandError < StandardError; end
 class MpdNoAlbumArt < StandardError; end
 
+PORT = 6600
+
 class MpdBackend
-  def self.command(command, parameters = [])
-    new.command(command, parameters)
+  def self.command(ip, command, parameters = [])
+    new(ip).command(command, parameters)
   end
 
-  def self.query(command, parameters = [])
-    new.query(command, parameters)
+  def self.query(ip, command, parameters = [])
+    new(ip).query(command, parameters)
   end
 
-  def self.command_list(&block)
-    open_socket do |socket|
-      backend = MpdBackend.new(socket: socket)
+  def self.command_list(ip, &block)
+    open_socket(ip) do |socket|
+      backend = MpdBackend.new(nil, socket: socket)
 
       backend.prevent_reading_response = true
 
@@ -34,13 +36,13 @@ class MpdBackend
     end
   end
 
-  def self.fetch_and_save_albumart(album, output_file)
+  def self.fetch_and_save_albumart(ip, album, output_file)
     offset = 0
 
     song_uri = first_song_uri(album).gsub(/"/, "\\\"")
 
     loop do
-      response = fetch_albumart_part(album, song_uri, offset)
+      response = fetch_albumart_part(ip, album, song_uri, offset)
 
       break if response[:byte_count] == 0
 
@@ -50,16 +52,16 @@ class MpdBackend
     end
   end
 
-  def self.first_song_uri(album)
-    songs_result = MpdBackend.query(%[find "((Album == %s) AND (AlbumArtist == %s))"], [album.title, album.artist])
+  def self.first_song_uri(ip, album)
+    songs_result = MpdBackend.query(ip, %[find "((Album == %s) AND (AlbumArtist == %s))"], [album.title, album.artist])
 
     songs_result.read_value("file")
   end
 
-  def self.fetch_albumart_part(album, song_uri, offset = 0)
+  def self.fetch_albumart_part(ip, album, song_uri, offset = 0)
     command = Interpolator.interpolate(%Q[albumart %s %d], [song_uri, offset], quote_char: '"')
 
-    open_socket do |socket|
+    open_socket(ip) do |socket|
       banner_line = socket.gets
 
       socket.write command
@@ -91,7 +93,8 @@ class MpdBackend
     end
   end
 
-  def initialize(socket: nil)
+  def initialize(ip, socket: nil)
+    @ip = ip
     @socket = socket
   end
 
@@ -119,7 +122,7 @@ class MpdBackend
     if @socket
       send_query(query, socket: @socket, should_read_response: should_read_response)
     else
-      open_socket do |socket|
+      MpdBackend.open_socket(@ip) do |socket|
         send_query(query, socket: socket, should_read_response: should_read_response)
       end
     end
@@ -129,8 +132,8 @@ class MpdBackend
 
   private
 
-  def open_socket(&block)
-    TCPSocket.open(HOSTNAME, PORT) do |socket|
+  def self.open_socket(ip, &block)
+    TCPSocket.open(ip, PORT) do |socket|
       banner_line = socket.gets
 
       raise MpdConnectionError, "Error connecting: '#{banner_line.strip}'" if banner_line !~ /\AOK MPD/

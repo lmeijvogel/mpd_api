@@ -1,10 +1,6 @@
 require 'mpd_logger'
 require 'mpd_backend'
 
-HOSTNAME = "192.168.2.3"
-# HOSTNAME = "192.168.2.4"
-PORT = 6600
-
 class Output
   attr_reader :id, :name
 
@@ -43,8 +39,33 @@ class Album
 end
 
 class Backend
+  def self.players
+    [
+      {
+        name: "Huiskamer",
+        ip: "192.168.2.4",
+      },
+      {
+        name: "Zolder",
+        ip: "192.168.2.3"
+      },
+      {
+        name: "VM",
+        ip: "192.168.2.16"
+      },
+      {
+        name: "Raspberry",
+        ip: "192.168.2.17"
+      }
+    ]
+  end
+
+  def initialize(ip)
+    @ip = ip
+  end
+
   def playlist
-    response = MpdBackend.query("playlistinfo")
+    response = MpdBackend.query(@ip, "playlistinfo")
 
     return [] if response.lines.count <= 1
 
@@ -56,7 +77,11 @@ class Backend
   end
 
   def status
-    response = MpdBackend.query("status")
+    response = MpdBackend.query(@ip, "status")
+
+    player = self.class.players.find do |p|
+      p[:ip] == @ip
+    end
 
     result = {
       repeat: response.read_value("repeat"),
@@ -65,7 +90,8 @@ class Backend
       consume: response.read_value("consume"),
       state: response.read_value("state"),
       volume: response.read_value("volume", default: '-'),
-      outputs: self.outputs
+      outputs: self.outputs,
+      player: player || self.class.players[0]
     }
 
     if result[:state] == "stop"
@@ -80,21 +106,21 @@ class Backend
   end
 
   def command(command)
-    MpdBackend.command(command)
+    MpdBackend.command(@ip, command)
   end
 
   def set_volume(volume)
-    MpdBackend.command("setvol %d", [Integer(volume)])
+    MpdBackend.command(@ip, "setvol %d", [Integer(volume)])
   end
 
   def play_id(id)
-    MpdBackend.command("playid %d", [Integer(id)])
+    MpdBackend.command(@ip, "playid %d", [Integer(id)])
   end
 
   def retrieve_albumart(album, output_file)
     begin
       File.open(output_file, "wb") do |file|
-        MpdBackend.fetch_and_save_albumart(album, file)
+        MpdBackend.fetch_and_save_albumart(@ip, album, file)
       end
     rescue MpdNoAlbumArt
       FileUtils.rm_f output_file
@@ -103,7 +129,7 @@ class Backend
   end
 
   def albums
-    albums_and_artists = MpdBackend.query("list album group albumartistsort")
+    albums_and_artists = MpdBackend.query(@ip, "list album group albumartistsort")
 
     artist_header = %r[\AAlbumArtistSort: ]
     album_header = %r[\AAlbum: ]
@@ -123,11 +149,11 @@ class Backend
   end
 
   def update_albums
-    MpdBackend.command("update")
+    MpdBackend.command(@ip, "update")
   end
 
   def clear_add(title:, artist:)
-    MpdBackend.command_list do |backend|
+    MpdBackend.command_list(@ip) do |backend|
       backend.command("clear", [])
       backend.command(%[findadd "((Album == %s) AND (AlbumArtist == %s))"], [title, artist])
       backend.command("play", [])
@@ -137,7 +163,7 @@ class Backend
   def enable_output(id)
     current_outputs = outputs # Do this outside of the command list
 
-    MpdBackend.command_list do |backend|
+    MpdBackend.command_list(@ip) do |backend|
       to_enable, to_disable = current_outputs.partition {|output| output[:id] == id }
 
       [to_enable, to_disable].zip(["enableoutput", "disableoutput"]).each do |outputs, command|
@@ -161,7 +187,7 @@ class Backend
   end
 
   def outputs
-    MpdBackend.query("outputs").slice_before(/^outputid:/).map do |mpd_response_part|
+    MpdBackend.query(@ip, "outputs").slice_before(/^outputid:/).map do |mpd_response_part|
       {
         id: Integer(mpd_response_part.read_value("outputid")),
         name: mpd_response_part.read_value("outputname"),

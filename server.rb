@@ -19,8 +19,16 @@ COVERS_PATH = "covers"
 
 FileUtils.mkdir_p(COVERS_PATH)
 
+get '/api/players' do
+  Backend.players.to_json
+end
+
+post '/api/select_player' do
+  $ip = JSON.parse(request.body.read).fetch("ip")
+end
+
 get '/api/albums' do
-  Backend.new.albums.map do |album|
+  Backend.new(ip).albums.map do |album|
     {
       album: album.title,
       album_artist: album.artist,
@@ -30,7 +38,11 @@ get '/api/albums' do
 end
 
 get '/api/status' do
-  Backend.new.status.to_json
+  Backend.new(ip).status.to_json
+end
+
+get '/api/takeover_status' do
+  return Backend.new(ip).takeover_status.to_json
 end
 
 post '/api/command' do
@@ -41,7 +53,7 @@ post '/api/command' do
     return
   end
 
-  Backend.new.command(command)
+  Backend.new(ip).command(command)
 end
 
 post '/api/update_playback_setting' do
@@ -57,7 +69,7 @@ post '/api/update_playback_setting' do
     return
   end
 
-  Backend.new.command("#{key} #{value}")
+  Backend.new(ip).command("#{key} #{value}")
 end
 
 post '/api/update_album_covers' do
@@ -65,32 +77,36 @@ post '/api/update_album_covers' do
 end
 
 post '/api/update_albums' do
-  Backend.new.update_albums
+  Backend.new(ip).update_albums
 end
 
 get '/api/playlist' do
-  Backend.new.playlist.to_json
+  Backend.new(ip).playlist.to_json
 end
 
 post '/api/clear_and_play' do
   payload = JSON.parse(request.body.read)
-  Backend.new.clear_add(title: payload.fetch("album"), artist: payload.fetch("album_artist"))
+  Backend.new(ip).clear_add(title: payload.fetch("album"), artist: payload.fetch("album_artist"))
 end
 
 post '/api/play_id' do
   id = Integer(JSON.parse(request.body.read).fetch("id"))
-  Backend.new.play_id(id)
+  Backend.new(ip).play_id(id)
 end
 
 post '/api/volume' do
   volume = Integer(JSON.parse(request.body.read).fetch("volume"))
-  Backend.new.set_volume(volume)
+  Backend.new(ip).set_volume(volume)
 end
 
 post '/api/enable_output' do
   id = Integer(JSON.parse(request.body.read).fetch("id"))
 
-  Backend.new.enable_output(id)
+  Backend.new(ip).enable_output(id)
 
   status 204
+end
+
+def ip
+  $ip
 end
