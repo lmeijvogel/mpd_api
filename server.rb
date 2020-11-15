@@ -19,6 +19,13 @@ COVERS_PATH = "covers"
 
 FileUtils.mkdir_p(COVERS_PATH)
 
+set :show_exceptions, false
+error do |e|
+  status 400
+
+  e.inspect
+end
+
 get '/api/players' do
   Backend.players.to_json
 end

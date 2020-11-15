@@ -7,6 +7,8 @@ class MpdNoAlbumArt < StandardError; end
 
 PORT = 6600
 
+class NoBackendSelected < StandardError ; end
+
 class MpdBackend
   def self.command(ip, command, parameters = [])
     new(ip).command(command, parameters)
@@ -133,6 +135,8 @@ class MpdBackend
   private
 
   def self.open_socket(ip, &block)
+    raise NoBackendSelected if ip.nil?
+
     TCPSocket.open(ip, PORT) do |socket|
       banner_line = socket.gets
 
