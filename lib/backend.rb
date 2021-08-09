@@ -85,23 +85,22 @@ class Backend
     end
 
     result = {
-      repeat: response.read_value("repeat"),
-      random: response.read_value("random"),
-      single: response.read_value("single"),
-      consume: response.read_value("consume"),
+      repeat: response.read_value("repeat") == "1",
+      random: response.read_value("random") == "1",
+      single: response.read_value("single") == "1",
+      consume: response.read_value("consume") == "1",
       state: response.read_value("state"),
-      volume: response.read_value("volume", default: '-'),
+      volume: response.read_int("volume", default: nil),
       outputs: self.outputs,
-      player: player || self.class.players[0]
     }
 
     if result[:state] == "stop"
       result
     else
       result.merge({
-        songid: response.read_value("songid"),
-        elapsed: response.read_value("elapsed"),
-        duration: response.read_value("duration")
+        songid: response.read_value("songid").to_i,
+        elapsed: response.read_value("elapsed").to_f,
+        duration: response.read_value("duration").to_f
       })
     end
   end
@@ -188,11 +187,13 @@ class Backend
 
   def to_song(mpd_response)
     {
-      id: mpd_response.read_value("Id"),
+      id: Integer(mpd_response.read_value("Id")),
       artist: mpd_response.read_value("Artist"),
+      album_artist: mpd_response.read_value("AlbumArtist", default: nil),
       title: mpd_response.read_value("Title"),
-      position: mpd_response.read_value("Pos"),
-      time: mpd_response.read_value("Time")
+      album: mpd_response.read_value("Album"),
+      position: Integer(mpd_response.read_value("Pos")),
+      time: Integer(mpd_response.read_value("Time"))
     }
   end
 

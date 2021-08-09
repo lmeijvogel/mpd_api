@@ -3,18 +3,32 @@ class MpdResponse
     @response_text = response_text[0] =~ /\AOK/ ? response_text[1..-1] : response_text
   end
 
-  def read_value(field_name, default: nil)
+  def read_value(field_name, default: :unspecified)
     regex = %r[^#{field_name}: (.*)]
 
     matching_lines = @response_text.grep(regex)
 
-    if matching_lines.none? && default
+    if matching_lines.none? && (default != :unspecified)
       return default
     end
 
     matches = matching_lines[0].match(regex)
 
     matches[1]
+  end
+
+  def read_int(field_name, default: :unspecified)
+    regex = %r[^#{field_name}: (.*)]
+
+    matching_lines = @response_text.grep(regex)
+
+    if matching_lines.none? && (default != :unspecified)
+      return default
+    end
+
+    matches = matching_lines[0].match(regex)
+
+    Integer(matches[1])
   end
 
   def lines
