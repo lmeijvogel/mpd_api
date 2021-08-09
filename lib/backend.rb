@@ -48,7 +48,7 @@ class Backend
       },
       {
         name: "Zolder",
-        ip: "192.168.2.3"
+        ip: "192.168.2.5"
       },
       {
         name: "VM",
