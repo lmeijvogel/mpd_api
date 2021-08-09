@@ -20,22 +20,19 @@ COVERS_PATH = "covers"
 FileUtils.mkdir_p(COVERS_PATH)
 
 set :show_exceptions, false
+
 error do |e|
   status 400
 
   e.inspect
 end
 
-get '/api/players' do
+get '/players' do
   Backend.players.to_json
 end
 
-post '/api/select_player' do
-  $ip = JSON.parse(request.body.read).fetch("ip")
-end
-
-get '/api/albums' do
-  Backend.new(ip).albums.map do |album|
+get '/:player/albums' do
+  Backend.new(player.fetch(:ip)).albums.map do |album|
     {
       album: album.title,
       album_artist: album.artist,
@@ -44,15 +41,23 @@ get '/api/albums' do
   end.to_json
 end
 
-get '/api/status' do
-  Backend.new(ip).status.to_json
+get '/:player/status' do
+  Backend.new(player.fetch(:ip)).status.to_json
 end
 
-get '/api/takeover_status' do
-  return Backend.new(ip).takeover_status.to_json
+get "/:player/album_cover" do
+  cover_filename = Backend.new(player.fetch(:ip)).album_cover
+
+  {
+    cover_path: File.join(COVERS_PATH, cover_filename[:path])
+  }.to_json
 end
 
-post '/api/command' do
+get '/:player/takeover_status' do
+  return Backend.new(player.fetch(:ip)).takeover_status.to_json
+end
+
+post '/:player/command' do
   command = JSON.parse(request.body.read).fetch("command")
 
   unless %w[previous play pause next stop].include?(command)
@@ -60,10 +65,10 @@ post '/api/command' do
     return
   end
 
-  Backend.new(ip).command(command)
+  Backend.new(player.fetch(:ip)).command(command)
 end
 
-post '/api/update_playback_setting' do
+post '/:player/update_playback_setting' do
   input = JSON.parse(request.body.read)
 
   key, value = input.values_at("key", "value")
@@ -76,44 +81,45 @@ post '/api/update_playback_setting' do
     return
   end
 
-  Backend.new(ip).command("#{key} #{value}")
+  Backend.new(player.fetch(:ip)).command("#{key} #{value}")
 end
 
-post '/api/update_album_covers' do
+post '/update_album_covers' do
   CoverLoader.perform_async
 end
 
-post '/api/update_albums' do
+post '/update_albums' do
   Backend.new(ip).update_albums
 end
 
-get '/api/playlist' do
-  Backend.new(ip).playlist.to_json
+get '/:player/playlist' do
+  Backend.new(player.fetch(:ip)).playlist.to_json
 end
 
-post '/api/clear_and_play' do
+post '/:player/clear_and_play' do
   payload = JSON.parse(request.body.read)
-  Backend.new(ip).clear_add(title: payload.fetch("album"), artist: payload.fetch("album_artist"))
+
+  Backend.new(player.fetch(:ip)).clear_add(title: payload.fetch("album"), artist: payload.fetch("album_artist"))
 end
 
-post '/api/play_id' do
+post '/:player/play_id' do
   id = Integer(JSON.parse(request.body.read).fetch("id"))
-  Backend.new(ip).play_id(id)
+  Backend.new(player.fetch(:ip)).play_id(id)
 end
 
-post '/api/volume' do
+post '/:player/volume' do
   volume = Integer(JSON.parse(request.body.read).fetch("volume"))
-  Backend.new(ip).set_volume(volume)
+  Backend.new(player.fetch(:ip)).set_volume(volume)
 end
 
-post '/api/enable_output' do
+post '/:player/enable_output' do
   id = Integer(JSON.parse(request.body.read).fetch("id"))
 
-  Backend.new(ip).enable_output(id)
+  Backend.new(player.fetch(:ip)).enable_output(id)
 
   status 204
 end
 
-def ip
-  $ip
+def player
+  Backend.players.find {|p| p[:name].downcase == params.fetch(:player).downcase }
 end
