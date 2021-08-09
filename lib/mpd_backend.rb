@@ -119,7 +119,7 @@ class MpdBackend
   end
 
   def send(query, should_read_response:)
-    MpdLogger.debug("Sending command [[#{@query}]])")
+    MpdLogger.debug("Sending command [[#{query}]])")
 
     if @socket
       send_query(query, socket: @socket, should_read_response: should_read_response)
