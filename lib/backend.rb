@@ -100,9 +100,19 @@ class Backend
       result.merge({
         songid: response.read_value("songid").to_i,
         elapsed: response.read_value("elapsed").to_f,
-        duration: response.read_value("duration").to_f
+        duration: response.read_value("duration").to_f,
+        album_cover_path: album_cover_filename
       })
     end
+  end
+
+  def album_cover_filename
+    response = MpdBackend.query(@ip, "currentsong")
+
+    title = response.read_value("Album")
+    artist = response.read_value("Artist")
+
+    Album.new(title, artist).cover_filename
   end
 
   def takeover_status
